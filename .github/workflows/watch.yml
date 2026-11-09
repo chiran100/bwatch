@@ -1,0 +1,35 @@
+name: Better watcher
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes (GitHub may delay runs)
+  workflow_dispatch:         # lets you run it by hand from the Actions tab
+
+concurrency:
+  group: better-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120      # first run crawls the whole facility feed
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Restore the state file (courts, feed cursor, already-alerted slots).
+      # Caches are immutable, so each run saves under a new key and the next
+      # run restores the most recent one via the prefix.
+      - uses: actions/cache@v4
+        with:
+          path: better_state.json
+          key: better-state-${{ github.run_id }}
+          restore-keys: better-state-
+
+      - name: Check feeds and alert
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python better_watch.py watch
