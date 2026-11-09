@@ -33,6 +33,17 @@ WINDOWS = {0: EVENING, 1: EVENING, 2: EVENING, 3: EVENING}  # Mon-Thu
 # To also watch the morning slots, e.g.:
 # WINDOWS[0] = EVENING + [("08:40", "09:20")]
 
+# TEST: set True to watch 16:00-16:40 on every day instead, then set back to
+# False once you've confirmed alerts reach your phone.
+TEST_MODE = True
+if TEST_MODE:
+    WINDOWS = {d: [("16:00", "16:40")] for d in range(7)}
+
+# On a fresh start, look this many days back in the slots feed. Slots open
+# 7 days ahead, so 8 covers everything currently bookable. Changing this
+# number automatically restarts the feed position on the next run.
+BACKFILL_DAYS = 8
+
 LONDON = ZoneInfo("Europe/London")
 STATE_FILE = Path(os.environ.get("BETTER_STATE", "better_state.json"))
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
@@ -124,7 +135,7 @@ def notify(title, body, click):
 def start_cursor():
     # RPDE feeds are ordered by modification time, oldest first. Start a few
     # days back instead of crawling years of history. Falls back to full crawl.
-    return f"{BASE}/slots?afterTimestamp={int(time.time()) - 3 * 86400}&afterId="
+    return f"{BASE}/slots?afterTimestamp={int(time.time()) - BACKFILL_DAYS * 86400}&afterId="
 
 
 def watch_once(st):
@@ -132,6 +143,9 @@ def watch_once(st):
         discover(st)  # first run only (slow); result is kept in the state file
     if not st["courts"]:
         sys.exit("No Rivermead badminton-40min courts found; check the slugs.")
+    sig = f"backfill={BACKFILL_DAYS}"
+    if st.get("sig") != sig:  # first run or setting changed: start the feed afresh
+        st.update(sig=sig, cursor=None, slots={}, notified=[])
     cursor = st["cursor"] or start_cursor()
     try:
         pages = list(crawl(cursor))
@@ -181,6 +195,13 @@ def watch_once(st):
             "\n".join(lines),
             st["courts"][fresh[0]["fu"]]["url"],
         )
+    inwin = [s for s in st["slots"].values() if wanted(s["start"], s["end"])]
+    print(
+        f"Tracking {len(st['slots'])} Rivermead slots; {len(inwin)} in your windows, "
+        f"{sum(1 for s in inwin if s['left'] > 0)} with courts free; "
+        f"{len(fresh)} new alert(s).",
+        flush=True,
+    )
     save_state(st)
 
 
